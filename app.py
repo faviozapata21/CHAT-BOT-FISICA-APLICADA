@@ -1258,12 +1258,10 @@ def _extraer_medida(patron, texto, default=None):
 
 
 def _fmt_num(valor: float) -> str:
-    """Número limpio para mostrar en el desarrollo."""
+    """Número limpio, redondeado a 6 cifras significativas (4-6 decimals útiles)."""
     if valor == 0:
         return "0"
-    if abs(valor) >= 1e7 or abs(valor) < 1e-4:
-        return f"{valor:.4e}"
-    return f"{valor:.6f}".rstrip("0").rstrip(".")
+    return f"{valor:.6g}"
 
 
 def _si_longitud(valor, unidad):
@@ -1301,7 +1299,7 @@ def resolver_fuerza_magnetica_conductor(texto: str):
       1) Con longitud L directa:  F = I * L * B * sin(theta)
       2) Con diámetro d y N vueltas:
            L_total = N * pi * d
-           F = N * I * L_total * B * sin(theta)
+           F = I * L_total * B * sin(theta)
 
     theta por defecto = 90° (perpendicular) -> sin(theta) = 1.
     Retorna Markdown o None si el enunciado no corresponde a este caso.
@@ -1386,8 +1384,8 @@ def resolver_fuerza_magnetica_conductor(texto: str):
             return None
 
         d, d_uni_txt = _si_longitud(diametro_raw, uni_usada)
-        L = N * math.pi * d
-        F = N * I * L * B * sin_theta
+        L_total = N * math.pi * d
+        F = I * L_total * B * sin_theta
 
         # Mostrar el dato tal como se dio y su conversión a SI (sin borrar θ).
         if es_radio:
@@ -1405,11 +1403,11 @@ def resolver_fuerza_magnetica_conductor(texto: str):
             rf"$N = {_fmt_num(N)}\,\text{{{vuelta_txt}}}$"
             + (r"\;(asumida = 1, espira única)" if N_raw is None else "")
         )
-        formula = r"L = N\,\pi\,d \qquad;\qquad F = N\,I\,L\,B\,\sin\theta"
+        formula = r"L_{\text{total}} = N\,\pi\,d \qquad;\qquad F = I\,L_{\text{total}}\,B\,\sin\theta"
         sustitucion = (
-            rf"$$L = {_fmt_num(N)}\cdot\pi\cdot({_fmt_num(d)}) = {_fmt_num(L)}\,\text{{m}}$$"
+            rf"$$L_{{\text{{total}}}} = {_fmt_num(N)}\cdot\pi\cdot({_fmt_num(d)}) = {_fmt_num(L_total)}\,\text{{m}}$$"
             "\n\n"
-            rf"$$F = {_fmt_num(N)}\cdot({_fmt_num(I)})\cdot({_fmt_num(L)})\cdot({_fmt_num(B)})"
+            rf"$$F = ({_fmt_num(I)})\cdot({_fmt_num(L_total)})\cdot({_fmt_num(B)})"
             rf"\cdot({_fmt_num(sin_theta)}) = {_fmt_num(F)}\,\text{{N}}$$"
         )
         titulo = "Fuerza Magnética sobre Bobina / Espira"
