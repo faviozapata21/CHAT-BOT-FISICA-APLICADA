@@ -267,8 +267,35 @@ def es_netlist_xml(texto):
 
 
 def es_netlist_texto(texto):
-    t = texto.strip()
-    return t.startswith("$") or (("v " in t or "r " in t) and ("\n" in t))
+    """
+    Detecta ÚNICAMENTE netlists reales de CircuitJS en formato texto.
+
+    Antes se consideraba netlist cualquier texto que contuviera "v " o "r "
+    y un salto de línea, lo cual capturaba enunciados como:
+        "fuerza magnética sobre un conductor:\\nr = 5 cm\\nI = 2 A"
+    y terminaba en el error 'Netlist clásico detectado pero sin componentes'.
+
+    Ahora exige líneas de componente válidas (código v/r/l/c/w seguido de
+    coordenadas numéricas), con la cabecera '$' opcional.
+    """
+    lineas = [l.strip() for l in texto.strip().splitlines() if l.strip()]
+    if not lineas:
+        return False
+
+    # Línea de componente CircuitJS: "r 112 96 240 96 0 1000", "w 0 0 10 0 0", ...
+    patron_componente = re.compile(
+        r'^[vrlcw]\s+[+-]?\d+(?:\.\d+)?\s+[+-]?\d+(?:\.\d+)?(?:\s|$)',
+        re.IGNORECASE,
+    )
+    n_componentes = sum(1 for l in lineas if patron_componente.match(l))
+
+    # Exportaciones típicas: "$ 1 0 ... " seguida de componentes.
+    if lineas[0].startswith("$"):
+        return n_componentes >= 1
+
+    # Sin cabecera '$', exigir al menos dos líneas de componente para no
+    # confundir un enunciado con datos como "r = 5 cm".
+    return n_componentes >= 2
 
 
 def _extraer_coords(attrs):
@@ -594,6 +621,10 @@ def clasificar_modulo(texto: str):
     # M3: Magnetismo y CA
     if any(k in t for k in ["lorentz", "biot", "savart", "faraday", "lenz", "rlc", "henry", "henrios", "tesla"]):
         scores["M3"] += 4
+    # Fuerza magnética sobre conductor/bobina no es electrostática ni electrodinámica.
+    if (any(k in t for k in ["fuerza magnética", "fuerza magnetica", "fuerza sobre el conductor"])
+            and any(k in t for k in ["alambre", "conductor", "espira", "bobina", "hilo", "devanado"])):
+        scores["M3"] += 5
 
     best = max(scores, key=lambda k: scores[k])
     return best if scores[best] > 0 else None
@@ -1202,10 +1233,214 @@ Ejemplos:
 # ==============================================================================
 # 10. SOLUCIONADOR MÓDULO 3: MAGNETISMO (extras sobre motor RLC)
 # ==============================================================================
+def _parse_numero_decimal(texto_num: str):
+    """Acepta coma o punto decimal: '1,50' -> 1.50, '1.234,56' -> 1234.56."""
+    s = str(texto_num).strip()
+    if "," in s and "." in s:
+        # Convención latina: punto de millar, coma decimal.
+        s = s.replace(".", "").replace(",", ".")
+    else:
+        s = s.replace(",", ".")
+    return float(s)
+
+
+def _extraer_medida(patron, texto, default=None):
+    """Devuelve (valor_float, unidad) capturando coma o punto decimal."""
+    m = re.search(patron, texto, re.IGNORECASE)
+    if not m:
+        return default, None
+    try:
+        valor = _parse_numero_decimal(m.group(1))
+    except Exception:
+        return default, None
+    unidad = (m.group(2) or "").strip() if m.lastindex and m.lastindex >= 2 else None
+    return valor, unidad
+
+
+def _fmt_num(valor: float) -> str:
+    """Número limpio para mostrar en el desarrollo."""
+    if valor == 0:
+        return "0"
+    if abs(valor) >= 1e7 or abs(valor) < 1e-4:
+        return f"{valor:.4e}"
+    return f"{valor:.6f}".rstrip("0").rstrip(".")
+
+
+def _si_longitud(valor, unidad):
+    u = (unidad or "").lower()
+    if u in ("mm", "milimetro", "milimetros", "milímetro", "milímetros"):
+        return valor * 1e-3, "mm"
+    if u in ("cm", "centimetro", "centimetros", "centímetro", "centímetros"):
+        return valor * 1e-2, "cm"
+    return valor, "m"
+
+
+def _si_corriente(valor, unidad):
+    u = (unidad or "").lower()
+    if u in ("ma", "miliamperio", "miliamperios", "miliamper", "miliamperes"):
+        return valor * 1e-3, "mA"
+    return valor, "A"
+
+
+def _si_campo(valor, unidad):
+    u = (unidad or "").lower()
+    if u in ("mt", "militesla", "militeslas"):
+        return valor * 1e-3, "mT"
+    return valor, "T"
+
+
+def resolver_fuerza_magnetica_conductor(texto: str):
+    """
+    M3 — Fuerza magnética sobre un conductor, alambre, espira o bobina.
+
+    Soporta coma decimal y conversión a SI:
+      - I: mA -> A
+      - L, d: mm -> m, cm -> m
+
+    Casos:
+      1) Con longitud L directa:  F = I * L * B * sin(theta)
+      2) Con diámetro d y N vueltas:
+           L_total = N * pi * d
+           F = N * I * L_total * B * sin(theta)
+
+    theta por defecto = 90° (perpendicular) -> sin(theta) = 1.
+    Retorna Markdown o None si el enunciado no corresponde a este caso.
+    """
+    t = texto.lower()
+
+    # No secuestrar otros temas de M3 ni de M1/M2.
+    if any(k in t for k in ["lorentz", "carga en campo", "partícula en campo",
+                            "particula en campo", "biot", "savart", "faraday",
+                            "lenz", "fem inducida", "variación de flujo",
+                            "variacion de flujo"]):
+        return None
+
+    es_conductor = any(k in t for k in [
+        "alambre", "conductor", "espira", "bobina", "hilo", "cable",
+        "vuelta", "devanado", "solenoide",
+    ])
+    if not es_conductor:
+        return None
+
+    tiene_fuerza = any(k in t for k in ["fuerza", "f = ", "fz"])
+    tiene_datos = bool(re.search(r'\bb\s*[:=]', t) and re.search(r'\bi\s*[:=]', t))
+    if not (tiene_fuerza or tiene_datos):
+        return None
+
+    num = r'([0-9]+(?:[.,][0-9]+)?(?:e[+\-]?[0-9]+)?)'
+
+    patrones = {
+        "B": rf'\b(?:b|campo(?:\s+magn[ée]tico)?)\s*(?:de\s+)?[:=]?\s*{num}\s*(mt|militeslas?|t|tesla)?\b',
+        "I": rf'\b(?:i|corriente|intensidad)\b\s*(?:de\s+)?[:=]?\s*{num}\s*(ma|miliamperios?|a|amperios?)?\b',
+        "L": rf'\b(?:l|longitud|alambre|hilo|conductor)\b\s*(?:de\s+)?[:=]?\s*{num}\s*(mm|milimetros?|cm|centimetros?|m|metros?)?\b',
+        "d": rf'\b(?:d|di[áa]metro|diametro)\b\s*(?:de\s+)?[:=]?\s*{num}\s*(mm|milimetros?|cm|centimetros?|m|metros?)?\b',
+        "r": rf'\b(?:radio|r)\b\s*(?:de\s+)?[:=]?\s*{num}\s*(mm|milimetros?|cm|centimetros?|m|metros?)?\b',
+        "N": rf'\b(?:n|vueltas?|espiras?|n[úu]mero\s+de\s+vueltas)\b\s*(?:de\s+)?[:=]?\s*{num}\s*(?:vueltas?|espiras?)?\b',
+        "N2": rf'{num}\s*(?:vueltas|espiras)\b',
+        "theta": rf'\b(?:theta|θ|ángulo|angulo|ang)\b\s*(?:de\s+)?[:=]?\s*{num}\s*(?:°|grados?)?\b',
+    }
+
+    B_raw, B_uni = _extraer_medida(patrones["B"], t)
+    I_raw, I_uni = _extraer_medida(patrones["I"], t)
+    if B_raw is None or I_raw is None:
+        return None
+
+    B, B_uni_txt = _si_campo(B_raw, B_uni)
+    I, I_uni_txt = _si_corriente(I_raw, I_uni)
+
+    theta, _ = _extraer_medida(patrones["theta"], t, default=90.0)
+    sin_theta = math.sin(math.radians(theta))
+    angulo_txt = f"{_fmt_num(theta)}°"
+
+    L_raw, L_uni = _extraer_medida(patrones["L"], t)
+    d_raw, d_uni = _extraer_medida(patrones["d"], t)
+    r_raw, r_uni = _extraer_medida(patrones["r"], t)
+    N_raw, _ = _extraer_medida(patrones["N"], t)
+    if N_raw is None:
+        N_raw, _ = _extraer_medida(patrones["N2"], t)
+    N = N_raw if N_raw is not None else 1.0
+
+    datos = [
+        rf"$B = {_fmt_num(B_raw)}\,\text{{{B_uni_txt}}} = {_fmt_num(B)}\,\text{{T}}$",
+        rf"$I = {_fmt_num(I_raw)}\,\text{{{I_uni_txt}}} = {_fmt_num(I)}\,\text{{A}}$",
+        rf"$\theta = {angulo_txt} \;\Rightarrow\; \sin\theta = {_fmt_num(sin_theta)}$",
+    ]
+
+    if L_raw is not None:
+        # Caso 1: longitud directa (no se multiplica por N).
+        L, L_uni_txt = _si_longitud(L_raw, L_uni)
+        datos.insert(2, rf"$L = {_fmt_num(L_raw)}\,\text{{{L_uni_txt}}} = {_fmt_num(L)}\,\text{{m}}$")
+        formula = r"F = I\,L\,B\,\sin\theta"
+        sustitucion = (
+            rf"$$F = ({_fmt_num(I)})\cdot({_fmt_num(L)})\cdot({_fmt_num(B)})"
+            rf"\cdot({_fmt_num(sin_theta)}) = {_fmt_num(I * L * B * sin_theta)}\,\text{{N}}$$"
+        )
+        F = I * L * B * sin_theta
+        titulo = "Fuerza Magnética sobre Alambre Conductor"
+    else:
+        # Caso 2: espira/bobina con diámetro (o radio) y N vueltas.
+        es_radio = d_raw is None and r_raw is not None
+        diametro_raw = (r_raw * 2.0) if es_radio else d_raw
+        uni_usada = r_uni if es_radio else d_uni
+        if diametro_raw is None:
+            return None
+
+        d, d_uni_txt = _si_longitud(diametro_raw, uni_usada)
+        L = N * math.pi * d
+        F = N * I * L * B * sin_theta
+
+        # Mostrar el dato tal como se dio y su conversión a SI (sin borrar θ).
+        if es_radio:
+            r_si, _ = _si_longitud(r_raw, r_uni)
+            dato_d = (
+                rf"$r = {_fmt_num(r_raw)}\,\text{{{d_uni_txt}}} = {_fmt_num(r_si)}\,\text{{m}}$"
+                rf"\;\Rightarrow\; d = 2r = {_fmt_num(d)}\,\text{{m}}$"
+            )
+        else:
+            dato_d = rf"$d = {_fmt_num(d_raw)}\,\text{{{d_uni_txt}}} = {_fmt_num(d)}\,\text{{m}}$"
+
+        datos.insert(2, dato_d)
+        vuelta_txt = "vuelta" if N == 1 else "vueltas"
+        datos.append(
+            rf"$N = {_fmt_num(N)}\,\text{{{vuelta_txt}}}$"
+            + (r"\;(asumida = 1, espira única)" if N_raw is None else "")
+        )
+        formula = r"L = N\,\pi\,d \qquad;\qquad F = N\,I\,L\,B\,\sin\theta"
+        sustitucion = (
+            rf"$$L = {_fmt_num(N)}\cdot\pi\cdot({_fmt_num(d)}) = {_fmt_num(L)}\,\text{{m}}$$"
+            "\n\n"
+            rf"$$F = {_fmt_num(N)}\cdot({_fmt_num(I)})\cdot({_fmt_num(L)})\cdot({_fmt_num(B)})"
+            rf"\cdot({_fmt_num(sin_theta)}) = {_fmt_num(F)}\,\text{{N}}$$"
+        )
+        titulo = "Fuerza Magnética sobre Bobina / Espira"
+
+    F_mN = F * 1e3
+    return f"""
+### 🔵 [M3 — Magnetismo] {titulo}
+
+**1) Datos convertidos a SI** *(se aceptaron comas decimales)*
+{chr(10).join('- ' + d for d in datos)}
+
+**2) Fórmula**
+$${formula}$$
+
+**3) Sustitución**
+{sustitucion}
+
+**4) Resultado final**
+$$\\boxed{{F = {_fmt_num(F)}\\;\\text{{N}} = {_fmt_num(F_mN)}\\;\\text{{mN}}}}$$
+"""
+
+
 def resolver_modulo3_extra(texto: str):
-    """Resuelve magnetismo puro (Lorentz, Biot-Savart, Faraday). Retorna str o None."""
+    """Resuelve magnetismo puro (fuerza en conductor, Lorentz, Biot-Savart, Faraday)."""
     t = texto.lower()
     mu0 = 4 * math.pi * 1e-7
+
+    # Prioridad: fuerza magnética sobre alambre/espira/bobina.
+    resp_fuerza = resolver_fuerza_magnetica_conductor(texto)
+    if resp_fuerza:
+        return resp_fuerza
 
     if any(k in t for k in ["lorentz", "fuerza magnética", "fuerza magnetica",
                               "qvb", "carga en campo", "partícula en campo"]):
@@ -1585,6 +1820,14 @@ def crear_osciloscopio_ac(res: dict):
 def procesar_consulta(prompt: str):
     """Detecta módulo y devuelve (tipo_resp, net_data, res_ac, respuesta_md)."""
 
+    # Prioridad 0: fuerza magnética sobre conductor/alambre/espira/bobina.
+    # Va ANTES de los parsers de netlist para que un enunciado con datos como
+    # "r = 5 cm" o "v = ..." nunca se confunda con un netlist de CircuitJS
+    # y se corte con "Netlist clásico detectado pero sin componentes".
+    resp_fuerza = resolver_fuerza_magnetica_conductor(prompt)
+    if resp_fuerza:
+        return "M3", None, None, resp_fuerza
+
     # Netlists siempre → M3
     if es_netlist_xml(prompt):
         net_data = parse_circuitjs_xml(prompt)
@@ -1643,6 +1886,8 @@ def _ayuda_m3():
     return """
 ### 🔵 [M3 — Magnetismo y CA] Temas Disponibles
 Ejemplos:
+- `Fuerza magnética en alambre: B=0,5 T, I=250 mA, L=10 cm`
+- `Fuerza en bobina: B=0,4 T, I=1,50 A, d=5 cm, N=100 vueltas`
 - `Fuerza de Lorentz: q=1.6e-19C, v=2e6 m/s, B=0.5T`
 - `Biot-Savart: hilo largo I=10A a r=0.05m`
 - `Faraday-Lenz: N=100 espiras, dPhi=0.002Wb, dt=0.01s`
