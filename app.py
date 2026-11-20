@@ -529,7 +529,7 @@ MODULOS = {
         "semanas": "1–3",
         "color": "#f59e0b",
         "keywords": [
-            "coulomb", "carga", "cargas", "q1", "q2", "µc", "uc", "nc",
+            "coulomb", "ley de coulomb", "carga", "cargas", "q1", "q2", "q3", "µc", "μc", "uc", "nc", "mc", "pc",
             "campo eléctrico", "campo electrico", "potencial eléctrico",
             "potencial electrico", "energía potencial", "energia potencial",
             "capacitor", "condensador", "capacitores", "condensadores",
@@ -546,14 +546,14 @@ MODULOS = {
         "semanas": "4–7",
         "color": "#22c55e",
         "keywords": [
-            "corriente", "amperios", "amperio", "ohm", "ohmios", "resistencia", "resistencias",
+            "corriente", "amperios", "amperio", "ohm", "ohmios", "ohms", "resistencia", "resistencias",
             "resistividad", "kirchhoff", "mallas", "malla", "nodos", "nodo", "kvl", "kcl", "ddp",
-            "batería", "bateria", "resistor", "resistores", "transitorio", "rc transitorio",
-            "carga rc", "descarga", "tiempo de relajación", "tiempo de relajacion", "tau",
+            "fuente", "voltaje", "voltios", "tensión", "tension", "fem", "batería", "bateria", "resistor", "resistores",
+            "transitorio", "rc transitorio", "carga rc", "descarga", "tiempo de relajación", "tiempo de relajacion", "tau",
             "constante de tiempo", "potencia eléctrica", "potencia electrica", "ley de ohm",
             "conductividad", "conductancia", "siemens", "energía disipada", "energia disipada",
-            "efecto joule", "joule", "watt", "watts", "vatios", "r1", "r2", "r3",
-            "electrodinámica", "electrodinamica"
+            "efecto joule", "joule", "watt", "watts", "vatios", "r1", "r2", "r3", "ω", "Ω",
+            "kohm", "kω", "kΩ", "electrodinámica", "electrodinamica"
         ],
     },
     "M3": {
@@ -562,6 +562,8 @@ MODULOS = {
         "color": "#38bdf8",
         "keywords": [
             "magnético", "magnetico", "magnetismo", "fuerza magnética", "fuerza magnetica",
+            "conductor", "conductores", "alambre", "alambres", "fuerza magnética sobre un conductor",
+            "fuerza sobre un conductor", "fuerza en un conductor",
             "lorentz", "biot-savart", "biot savart", "biot", "savart", "ampere", "ley de ampere",
             "bobina", "inductor", "inductores", "inductancia", "faraday", "lenz", "fem inducida",
             "flujo magnético", "flujo magnetico", "inducción", "induccion", "tesla", "weber",
@@ -600,9 +602,10 @@ def clasificar_modulo(texto: str):
                 scores[mid] += 1
 
     # Heurísticas de apoyo basadas en patrones característicos
-    # M1: Cargas (q, q1, q2, µC, nC) o Capacitores puros (c1, c2, µF sin inductores)
-    if re.search(r'\bq\d*\b', t) or re.search(r'\b\d+(?:\.\d+)?\s*(?:µc|uc|nc)\b', t):
-        scores["M1"] += 3
+    # M1: Cargas (q, q1, q2, µC, μC, uC, nC) o Capacitores puros (c1, c2, µF sin inductores)
+    if re.search(r'\bq\d*\b', t) or re.search(r'\b\d+(?:[.,]\d+)?\s*(?:µc|μc|uc|nc|mc|pc|coulomb)\b', t) or \
+       ("carga" in t and any(u in t for u in ["µc", "μc", "uc", "nc", "mc", "c"])):
+        scores["M1"] += 4
     if re.search(r'\bc\d*\s*[=:]\s*[\d.]+', t) or re.search(r'\b\d+(?:\.\d+)?\s*(?:µf|uf|nf|pf)\b', t):
         if not any(k in t for k in ["rlc", "inductor", "l=", "l1", "bobina", "hz", "frecuencia"]):
             if any(k in t for k in ["rc", "transitorio", "tau", "r=", "r1", "resistencia"]):
@@ -610,8 +613,12 @@ def clasificar_modulo(texto: str):
             else:
                 scores["M1"] += 3
 
-    # M2: Resistencias (r1, r2, ohm) sin inductores/capacitores AC
-    if re.search(r'\br\d*\b', t) and not any(k in t for k in ["rlc", "inductor", "l=", "l1", "bobina", "hz"]):
+    # M2: Resistencia con fuente/voltaje (Ley de Ohm) o Resistencias sin inductores/capacitores AC
+    if (re.search(r'\b\d+(?:[.,]\d+)?\s*(?:k?ohm|k?ohms|k?ohmios|k?[ωΩ])\b', t) or any(k in t for k in ["resistencia", "resistor", "ohm", "ohmios", "ω", "Ω"])) and \
+       (any(k in t for k in ["fuente", "voltaje", "voltios", "tensión", "tension", "fem", "ddp", "batería", "bateria", "ley de ohm"]) or re.search(r'\b\d+(?:[.,]\d+)?\s*v\b', t)):
+        if not any(k in t for k in ["rlc", "inductor", "l=", "bobina", "hz"]):
+            scores["M2"] += 5
+    elif (re.search(r'\br\d*\b', t) or re.search(r'\b\d+(?:[.,]\d+)?\s*(?:k?ohm|k?ohms|k?ohmios|k?[ωΩ])\b', t)) and not any(k in t for k in ["rlc", "inductor", "l=", "l1", "bobina", "hz"]):
         scores["M2"] += 2
 
     # M4: Diodos y semiconductores
@@ -621,10 +628,12 @@ def clasificar_modulo(texto: str):
     # M3: Magnetismo y CA
     if any(k in t for k in ["lorentz", "biot", "savart", "faraday", "lenz", "rlc", "henry", "henrios", "tesla"]):
         scores["M3"] += 4
-    # Fuerza magnética sobre conductor/bobina no es electrostática ni electrodinámica.
-    if (any(k in t for k in ["fuerza magnética", "fuerza magnetica", "fuerza sobre el conductor"])
+    # Fuerza magnética sobre conductor/bobina
+    if (any(k in t for k in ["fuerza magnética", "fuerza magnetica", "fuerza sobre el conductor", "fuerza sobre un conductor", "fuerza"])
             and any(k in t for k in ["alambre", "conductor", "espira", "bobina", "hilo", "devanado"])):
-        scores["M3"] += 5
+        scores["M3"] += 6
+    if any(k in t for k in ["conductor", "alambre"]) and any(k in t for k in ["tesla", "t", "campo", "b=", "corriente", "a", "ma"]):
+        scores["M3"] += 4
 
     best = max(scores, key=lambda k: scores[k])
     return best if scores[best] > 0 else None
@@ -691,6 +700,264 @@ def _nums(patron, texto):
     return [float(x) for x in re.findall(patron, texto, re.IGNORECASE)]
 
 
+def extraer_cargas_texto(texto: str):
+    """
+    Extrae valores de cargas eléctricas (q) a partir de texto en lenguaje natural o estándar.
+    Reconoce unidades: µC, μC, uC, nC, mC, pC y C (Coulombs).
+    Asigna signos automáticamente respetando:
+    - Signos explícitos (+ o -).
+    - Contexto inmediato ('positiva', 'negativa').
+    - Calificador global ('dos cargas positivas', 'dos cargas negativas', 'ambas negativas', etc.).
+    Retorna lista de diccionarios:
+      [{"val": float_en_coulombs, "mag": float_abs, "unit": str, "signo": int (+1 o -1),
+        "texto_signo": str, "span": (start, end)}]
+    """
+    t = texto.lower()
+    global_neg = any(p in t for p in ["dos cargas negativas", "ambas negativas", "cargas negativas", "ambas sean negativas", "todas negativas", "dos negativas", "las dos negativas"])
+    global_pos = any(p in t for p in ["dos cargas positivas", "ambas positivas", "cargas positivas", "ambas sean positivas", "todas positivas", "dos positivas", "las dos positivas"])
+
+    patron = re.compile(
+        r'([+\-]?\s*\d+(?:[.,]\d+)?(?:e[+\-]?\d+)?)\s*([µμu]c|microcoulombs?|nc|nanocoulombs?|mc|milicoulombs?|pc|picocoulombs?|coulombs?|c\b(?![a-zA-Z]))',
+        re.IGNORECASE
+    )
+
+    cargas = []
+    for m in patron.finditer(texto):
+        num_raw = m.group(1).replace(" ", "").replace(",", ".")
+        unit = m.group(2).lower()
+        start, end = m.span()
+        try:
+            val_base = float(num_raw)
+        except Exception:
+            continue
+
+        if any(u in unit for u in ["µc", "μc", "uc", "microcoulomb"]):
+            mult = 1e-6
+        elif any(u in unit for u in ["nc", "nanocoulomb"]):
+            mult = 1e-9
+        elif any(u in unit for u in ["pc", "picocoulomb"]):
+            mult = 1e-12
+        elif any(u in unit for u in ["mc", "milicoulomb"]):
+            mult = 1e-3
+        else:
+            mult = 1.0
+
+        # Determinación de signo
+        if "-" in m.group(1):
+            signo = -1
+        elif "+" in m.group(1):
+            signo = 1
+        else:
+            ctx_before = t[max(0, start - 30):start]
+            ctx_after = t[end:min(len(t), end + 30)]
+            ctx = ctx_before + " " + ctx_after
+            if "negativ" in ctx and "positiv" not in ctx:
+                signo = -1
+            elif "positiv" in ctx and "negativ" not in ctx:
+                signo = 1
+            elif global_neg:
+                signo = -1
+            elif global_pos:
+                signo = 1
+            else:
+                signo = 1
+
+        val_coulomb = signo * abs(val_base) * mult
+        cargas.append({
+            "val": val_coulomb,
+            "mag": abs(val_coulomb),
+            "unit": unit,
+            "signo": signo,
+            "texto_signo": "positiva" if signo > 0 else "negativa",
+            "span": (start, end)
+        })
+    return cargas
+
+
+def extraer_distancia_texto(texto: str, exclusion_spans=None):
+    """
+    Extrae la distancia r en metros a partir de lenguaje natural o fórmulas estándar.
+    Reconoce mm, cm y m. Maneja 'separadas 30 cm', 'distancia de 0.3 m', etc.
+    """
+    exclusion_spans = exclusion_spans or []
+
+    # 1. Patrón con palabras clave de distancia
+    patron_kw = re.compile(
+        r'(?:r12|r23|r(?![0-9_a-zA-Z])|d|distancia|separaci[oó]n|separad[ao]s?(?:\s+(?:por|a|de))?)\s*(?:de|por|[=:])?\s*([+\-]?\d+(?:[.,]\d+)?(?:e[+\-]?\d+)?)\s*(mm|cm|m)?\b',
+        re.IGNORECASE
+    )
+    for m in patron_kw.finditer(texto):
+        start, end = m.span()
+        if any(es <= start and end <= ee for es, ee in exclusion_spans):
+            continue
+        try:
+            num = float(m.group(1).replace(",", "."))
+            unit = (m.group(2) or "m").lower()
+            if unit == "cm":
+                return num * 1e-2
+            elif unit == "mm":
+                return num * 1e-3
+            elif unit == "m":
+                return num
+            return num
+        except Exception:
+            continue
+
+    # 2. Patrón de cualquier medida con cm, mm o m que no sea carga
+    patron_medida = re.compile(r'\b(\d+(?:[.,]\d+)?(?:e[+\-]?\d+)?)\s*(cm|mm|m)\b', re.IGNORECASE)
+    for m in patron_medida.finditer(texto):
+        start, end = m.span()
+        if any(es <= start and end <= ee for es, ee in exclusion_spans):
+            continue
+        unit = m.group(2).lower()
+        try:
+            num = float(m.group(1).replace(",", "."))
+            if unit == "cm":
+                return num * 1e-2
+            elif unit == "mm":
+                return num * 1e-3
+            elif unit == "m":
+                return num
+        except Exception:
+            continue
+    return None
+
+
+def extraer_resistencias_ohm(texto: str):
+    """
+    Extrae todas las resistencias en Ohmios (Ω) a partir de prosa o fórmulas.
+    Reconoce 10 Ω, 10 ohm, 10 kohm (10000 Ω), 2.2 MΩ, 'resistencia de 10 Ω', etc.
+    """
+    res = []
+    # Patrón con unidad explícita (Ω, ohm, etc.) con posibles prefijos (k, M, m)
+    patron_unit = re.compile(
+        r'(\d+(?:[.,]\d+)?(?:e[+\-]?\d+)?)\s*(k|m|meg)?\s*(?:[ωΩ]|ohm|ohms|ohmios)\b',
+        re.IGNORECASE
+    )
+    for m in patron_unit.finditer(texto):
+        try:
+            val = float(m.group(1).replace(",", "."))
+            pfx = (m.group(2) or "").lower()
+            if pfx == "k":
+                val *= 1e3
+            elif pfx in ("m", "meg"):
+                val *= 1e6
+            res.append(val)
+        except Exception:
+            continue
+
+    # Si no encontró con unidades explícitas, busca 'resistencia de X' o 'R = X'
+    if not res:
+        patron_kw = re.compile(
+            r'(?:resistencia|resistor|r\d*)\s*(?:de|[=:])?\s*(\d+(?:[.,]\d+)?(?:e[+\-]?\d+)?)\s*(k|m|meg)?\b',
+            re.IGNORECASE
+        )
+        for m in patron_kw.finditer(texto):
+            try:
+                val = float(m.group(1).replace(",", "."))
+                pfx = (m.group(2) or "").lower()
+                if pfx == "k":
+                    val *= 1e3
+                elif pfx in ("m", "meg"):
+                    val *= 1e6
+                res.append(val)
+            except Exception:
+                continue
+    return res
+
+
+def extraer_voltaje_texto(texto: str):
+    """
+    Extrae el voltaje V en Voltios a partir de prosa o fórmulas.
+    Reconoce 'fuente de 20 V', 'voltaje de 20 V', 'tensión de 20 V', 'batería de 20 V', '20 V', 'V = 20 V', etc.
+    """
+    # 1. Con palabra clave (fuente, voltaje, etc.)
+    patron_kw = re.compile(
+        r'(?:fuente|voltaje|tensi[oó]n|ddp|fem|bater[ií]a|vs|v\d*)\s*(?:de|[=:])?\s*(\d+(?:[.,]\d+)?(?:e[+\-]?\d+)?)\s*(k|m)?\s*(?:v|voltios?|volts?)\b',
+        re.IGNORECASE
+    )
+    m = patron_kw.search(texto)
+    if m:
+        try:
+            val = float(m.group(1).replace(",", "."))
+            pfx = (m.group(2) or "").lower()
+            if pfx == "k":
+                val *= 1e3
+            elif pfx == "m":
+                val *= 1e-3
+            return val
+        except Exception:
+            pass
+
+    # 1b. Con palabra clave sin unidad V explícita (ej. 'fuente de 20', 'voltaje de 20')
+    patron_kw_no_unit = re.compile(
+        r'(?:fuente|voltaje|tensi[oó]n|ddp|fem|bater[ií]a)\s*(?:de|[=:])?\s*(\d+(?:[.,]\d+)?(?:e[+\-]?\d+)?)\b',
+        re.IGNORECASE
+    )
+    m = patron_kw_no_unit.search(texto)
+    if m:
+        try:
+            return float(m.group(1).replace(",", "."))
+        except Exception:
+            pass
+
+    # 2. Número con unidad V (ej. '20 V', '20 voltios', '12V')
+    patron_v = re.compile(r'\b(\d+(?:[.,]\d+)?(?:e[+\-]?\d+)?)\s*(k|m)?\s*(?:v|voltios?|volts?)\b', re.IGNORECASE)
+    for m in patron_v.finditer(texto):
+        try:
+            val = float(m.group(1).replace(",", "."))
+            pfx = (m.group(2) or "").lower()
+            if pfx == "k":
+                val *= 1e3
+            elif pfx == "m":
+                val *= 1e-3
+            return val
+        except Exception:
+            continue
+    return None
+
+
+def extraer_corriente_texto(texto: str):
+    """
+    Extrae la corriente I en Amperios a partir de prosa o fórmulas.
+    Reconoce 'corriente de 2 A', '2 A', '500 mA', 'I = 2 A', etc.
+    """
+    patron_kw = re.compile(
+        r'(?:corriente|intensidad|i\d*)\s*(?:de|[=:])?\s*(\d+(?:[.,]\d+)?(?:e[+\-]?\d+)?)\s*(m|µ|μ|u|k)?\s*(?:a|amperios?|ampere|amps?)\b',
+        re.IGNORECASE
+    )
+    m = patron_kw.search(texto)
+    if m:
+        try:
+            val = float(m.group(1).replace(",", "."))
+            pfx = (m.group(2) or "").lower()
+            if pfx in ("m",):
+                val *= 1e-3
+            elif pfx in ("µ", "μ", "u"):
+                val *= 1e-6
+            elif pfx == "k":
+                val *= 1e3
+            return val
+        except Exception:
+            pass
+
+    patron_a = re.compile(r'\b(\d+(?:[.,]\d+)?(?:e[+\-]?\d+)?)\s*(m|µ|μ|u|k)?\s*(?:a|amperios?|ampere|amps?)\b', re.IGNORECASE)
+    for m in patron_a.finditer(texto):
+        try:
+            val = float(m.group(1).replace(",", "."))
+            pfx = (m.group(2) or "").lower()
+            if pfx in ("m",):
+                val *= 1e-3
+            elif pfx in ("µ", "μ", "u"):
+                val *= 1e-6
+            elif pfx == "k":
+                val *= 1e3
+            return val
+        except Exception:
+            continue
+    return None
+
+
 # ==============================================================================
 # 8. SOLUCIONADOR MÓDULO 1: ELECTROSTÁTICA
 # ==============================================================================
@@ -698,26 +965,30 @@ def resolver_modulo1(texto: str) -> str:
     t = texto.lower()
     K = 8.9875e9
 
-    # Ley de Coulomb (Soporta 2 o 3 cargas)
-    if any(k in t for k in ["coulomb", "fuerza", "q1", "q2", "q3", "r12", "r23"]):
+    cargas_detectadas = extraer_cargas_texto(texto)
+
+    # Ley de Coulomb (Soporta 2 o 3 cargas, en lenguaje natural o estándar)
+    if any(k in t for k in ["coulomb", "fuerza", "q1", "q2", "q3", "r12", "r23", "carga", "cargas"]) or len(cargas_detectadas) >= 2:
         def _parse_carga(nombre, txt):
             try:
-                # Patrón flexible para capturar signos y unidades (incluyendo uC, µC, C)
-                patron = rf'{nombre}\s*[=:]?\s*([+\-]?\d+(?:\.\d+)?(?:e[+\-]?\d+)?)\s*(µc|uc|nc|mc|c)?\b'
+                # Patrón flexible para capturar signos y unidades (incluyendo uC, µC, μC, C)
+                patron = rf'{nombre}\s*[=:]?\s*([+\-]?\d+(?:\.\d+)?(?:e[+\-]?\d+)?)\s*([µμu]c|nc|mc|pc|c)?\b'
                 m = re.search(patron, txt, re.IGNORECASE)
                 if not m:
                     return None
                 val = float(m.group(1))
                 unit = (m.group(2) or "").lower()
-                if unit in ("µc", "uc"):
+                if unit in ("µc", "μc", "uc"):
                     val *= 1e-6
                 elif unit == "nc":
                     val *= 1e-9
                 elif unit == "mc":
                     val *= 1e-3
+                elif unit == "pc":
+                    val *= 1e-12
                 elif not unit:
                     # Inferencia global si no tiene unidad pegada
-                    if "µc" in txt or "uc" in txt:
+                    if any(u in txt for u in ["µc", "μc", "uc"]):
                         val *= 1e-6
                 return val
             except Exception:
@@ -742,6 +1013,14 @@ def resolver_modulo1(texto: str) -> str:
         q1 = _parse_carga("q1", t)
         q2 = _parse_carga("q2", t)
         q3 = _parse_carga("q3", t)
+
+        # Si no se definieron por q1, q2 explícitamente, asignar desde cargas en lenguaje natural
+        if q1 is None and len(cargas_detectadas) >= 1:
+            q1 = cargas_detectadas[0]["val"]
+        if q2 is None and len(cargas_detectadas) >= 2:
+            q2 = cargas_detectadas[1]["val"]
+        if q3 is None and len(cargas_detectadas) >= 3:
+            q3 = cargas_detectadas[2]["val"]
         
         # Búsqueda robusta de r12 y r23 (incluso si están escritas como r_12, r12, etc.)
         r12 = _parse_dist(r"r12|r_12|r_{12}", t)
@@ -846,33 +1125,70 @@ $$\\vec F_{{neta,2}} = ({F12_vec:+.4e}) + ({F23_vec:+.4e})\\;\\text{{N}}\\;\\hat
 $$\\boxed{{\\vec F_{{neta,2}} = {F_neta:+.4e}\\;\\text{{N}}\\;\\hat{{\\imath}}\\quad\\left(|\\vec F_{{neta,2}}| = {abs(F_neta):.4e}\\;\\text{{N}},\\; {dir_neta},\\; \\text{{hacia }} q_3\\right)}}$$
 """
 
-        # Caso: 2 cargas (comportamiento clásico, sin requerir r12/r23 obligatoriamente)
-        if q1 is None:
-            q1 = 1.0
-        if q2 is None:
-            q2 = 1.0
-        r = _parse_dist(r"r(?![0-9_])|d|distancia|separaci[oó]n", t)
-        # Compatibilidad: si no hay r genérica pero sí r12 (y no es un caso de 3 cargas completo), usar r12
-        if (r is None or r <= 0) and r12 is not None and r12 > 0 and not (q3 is not None and r23 is not None and r23 > 0):
-            r = r12
-        if r is None or r <= 0:
-            r = 1.0
-        F = K * abs(q1 * q2) / (r ** 2)
-        signo = "repulsiva (mismo signo)" if q1 * q2 > 0 else "atractiva (signos opuestos)"
-        return f"""
+        # Caso: 2 cargas (lenguaje natural o estándar)
+        if q1 is not None or q2 is not None or len(cargas_detectadas) >= 2:
+            if q1 is None:
+                q1 = 1.0
+            if q2 is None:
+                q2 = 1.0
+
+            # Extraer distancia r considerando lenguaje natural (cm, mm, m, 'separadas 30 cm', etc.)
+            exclusion_spans = [c["span"] for c in cargas_detectadas]
+            r = extraer_distancia_texto(texto, exclusion_spans=exclusion_spans)
+            if (r is None or r <= 0) and r12 is not None and r12 > 0:
+                r = r12
+            if r is None or r <= 0:
+                r = _parse_dist(r"r(?![0-9_])|d|distancia|separaci[oó]n", t)
+            if r is None or r <= 0:
+                r = 1.0
+
+            F = K * abs(q1 * q2) / (r ** 2)
+            es_repulsiva = (q1 * q2 > 0)
+            signo_texto = "repulsiva (mismo signo)" if es_repulsiva else "atractiva (signos opuestos)"
+            
+            explicacion_interaccion = (
+                f"Dado que ambas cargas tienen el **mismo signo** "
+                f"({'ambas positivas' if q1 > 0 else 'ambas negativas'}), la fuerza es **repulsiva** "
+                f"(las cargas experimentan repulsión mutua, alejándose entre sí)."
+                if es_repulsiva else
+                "Dado que las cargas tienen **signos opuestos** "
+                "(una positiva y otra negativa), la fuerza es **atractiva** "
+                "(las cargas experimentan atracción mutua, acercándose entre sí)."
+            )
+
+            return f"""
 ### 🟡 [M1 — Electrostática] Ley de Coulomb
-**Fórmula:**
+
+**Enunciado interpretado:** Fuerza electrostática entre dos cargas puntuales en reposo en el vacío/aire.
+
+**Ley de Coulomb:**
 $$F = k\\,\\frac{{|q_1\\,q_2|}}{{r^2}}$$
 
-**Datos:**
-- $k = 8.9875 \\times 10^9\\;\\text{{N·m²/C²}}$
-- $q_1 = {q1:.3e}\\;\\text{{C}}$, $q_2 = {q2:.3e}\\;\\text{{C}}$
-- $r = {r}\\;\\text{{m}}$
+**Constante electrostática:**
+$$k = 8.9875 \\times 10^9\\;\\text{{N·m²/C²}}$$
 
-**Sustitución:**
-$$F = (8.9875\\times10^9)\\cdot\\frac{{({abs(q1):.2e})\\cdot({abs(q2):.2e})}}{{({r})^2}}$$
+**Datos extraídos:**
+- $q_1 = {q1:.3e}\\;\\text{{C}}$ ({'positiva' if q1 > 0 else 'negativa'})
+- $q_2 = {q2:.3e}\\;\\text{{C}}$ ({'positiva' if q2 > 0 else 'negativa'})
+- Distancia ($r$): ${r}\\;\\text{{m}}$
 
-$$\\boxed{{F = {F:.4e}\\;\\text{{N}}\\ —\\ \\text{{Fuerza {signo}}}}}$$
+---
+
+#### 1) Producto de las magnitudes de las cargas
+$$|q_1 \\cdot q_2| = |({q1:.3e}) \\cdot ({q2:.3e})| = {abs(q1 * q2):.4e}\\;\\text{{C}}^2$$
+
+#### 2) Cuadrado de la distancia de separación
+$$r^2 = ({r})^2 = {r**2:.4g}\\;\\text{{m}}^2$$
+
+#### 3) Magnitud de la fuerza eléctrica paso a paso
+$$F = (8.9875\\times10^9)\\cdot\\frac{{{abs(q1 * q2):.4e}}}{{{r**2:.4g}}}$$
+
+$$\\boxed{{F = {F:.4e}\\;\\text{{N}}\\ —\\ \\text{{Fuerza {signo_texto}}}}}$$
+
+---
+
+#### 4) Naturaleza de la interacción
+{explicacion_interaccion}
 """
 
     # Campo eléctrico puntual
@@ -1096,54 +1412,138 @@ Escribe tu ejercicio mencionando los datos. Ejemplos:
 def resolver_modulo2(texto: str) -> str:
     t = texto.lower()
 
-    # Resistencias equivalentes
-    if any(k in t for k in ["resistencia", "resistor", "r1", "r2", "r3", "equivalente", "ohm"]):
-        vals_r = _nums(r'(?:r\d+)\s*[=:]\s*([\d.]+)', t)
-        if not vals_r:
-            vals_r = _nums(r'([\d.]+)\s*(?:ω|ohm|Ω)\b', t)
-        V = _num(r'(?:v|voltaje|tensi[oó]n|ddp|fem)\s*[=:]\s*([\d.]+)', t, 0.0)
-        I = _num(r'(?:i|corriente)\s*[=:]\s*([\d.]+)', t, None)
+    # Resistencias y Ley de Ohm
+    if any(k in t for k in ["resistencia", "resistor", "r1", "r2", "r3", "equivalente", "ohm", "ohmios", "ohms",
+                             "ley de ohm", "fuente", "voltaje", "voltios", "tensión", "tension",
+                             "corriente", "amperio", "amperios", "ω", "Ω", "ddp", "fem", "batería", "bateria"]):
+        vals_r = extraer_resistencias_ohm(texto)
+        V = extraer_voltaje_texto(texto)
+        I = extraer_corriente_texto(texto)
         es_par = "paralelo" in t
 
-        # Solo Ley de Ohm sin lista de R
-        if not vals_r:
-            if V and I:
-                R_calc = V / I
-                return f"""
+        # Caso 1: Ley de Ohm directa (Resistencia y Voltaje conocidos -> calcula I paso a paso)
+        if V is not None and V > 0 and len(vals_r) == 1 and not es_par and I is None:
+            R_val = vals_r[0]
+            I_calc = V / R_val if R_val > 0 else 0.0
+            P_calc = V * I_calc
+            return f"""
 ### 🟢 [M2 — Electrodinámica] Ley de Ohm
-**Fórmula:** $R = V / I$
 
-**Datos:** $V = {V}\\;\\text{{V}}$, $I = {I}\\;\\text{{A}}$
+**Enunciado interpretado:** Circuito elemental con resistencia conectada a una fuente de voltaje continuo (DC).
 
-$$\\boxed{{R = \\frac{{{V}}}{{{I}}} = {R_calc:.4f}\\;\\Omega}}$$
+**Ley de Ohm:**
+La intensidad de corriente ($I$) que circula por un circuito eléctrico es directamente proporcional al voltaje o diferencia de potencial ($V$) aplicado, e inversamente proporcional a la resistencia ($R$) del conductor:
+$$I = \\frac{{V}}{{R}}$$
+
+**Datos extraídos:**
+- Voltaje de la fuente ($V$): ${V:.4g}\\;\\text{{V}}$
+- Resistencia ($R$): ${R_val:.4g}\\;\\Omega$
+
+---
+
+#### 1) Cálculo de la corriente eléctrica ($I$)
+**Fórmula:**
+$$I = \\frac{{V}}{{R}}$$
+
+**Sustitución:**
+$$I = \\frac{{{V:.4g}\\;\\text{{V}}}}{{{R_val:.4g}\\;\\Omega}}$$
+
+**Resultado:**
+$$\\boxed{{I = {I_calc:.4f}\\;\\text{{A}} = {I_calc * 1000:.2f}\\;\\text{{mA}}}}$$
+
+---
+
+#### 2) Potencia eléctrica disipada (Efecto Joule)
+**Fórmula:**
+$$P = V \\cdot I = \\frac{{V^2}}{{R}} = I^2 \\cdot R$$
+
+**Sustitución:**
+$$P = ({V:.4g}\\;\\text{{V}}) \\cdot ({I_calc:.4f}\\;\\text{{A}})$$
+
+$$\\boxed{{P = {P_calc:.4f}\\;\\text{{W}}}}$$
 """
-            if V and not I:
-                R_s = _num(r'(?:r|resistencia)\s*[=:]\s*([\d.]+)', t, None)
-                if R_s:
-                    I_calc = V / R_s
-                    return f"""
+
+        # Caso 2: Ley de Ohm con V e I conocidos (calcula R paso a paso)
+        if V is not None and V > 0 and I is not None and I > 0 and not vals_r:
+            R_calc = V / I
+            P_calc = V * I
+            return f"""
 ### 🟢 [M2 — Electrodinámica] Ley de Ohm
-**Fórmula:** $I = V / R$
 
-**Datos:** $V = {V}\\;\\text{{V}}$, $R = {R_s}\\;\\Omega$
+**Ley de Ohm:**
+$$R = \\frac{{V}}{{I}}$$
 
-$$\\boxed{{I = \\frac{{{V}}}{{{R_s}}} = {I_calc:.4f}\\;\\text{{A}}}}$$
+**Datos extraídos:**
+- Voltaje ($V$): ${V:.4g}\\;\\text{{V}}$
+- Corriente ($I$): ${I:.4g}\\;\\text{{A}}$
+
+---
+
+#### 1) Cálculo de la resistencia ($R$)
+**Fórmula:**
+$$R = \\frac{{V}}{{I}}$$
+
+**Sustitución:**
+$$R = \\frac{{{V:.4g}\\;\\text{{V}}}}{{{I:.4g}\\;\\text{{A}}}}$$
+
+$$\\boxed{{R = {R_calc:.4f}\\;\\Omega}}$$
+
+---
+
+#### 2) Potencia eléctrica disipada
+$$P = V \\cdot I = ({V:.4g}\\;\\text{{V}}) \\cdot ({I:.4g}\\;\\text{{A}})$$
+$$\\boxed{{P = {P_calc:.4f}\\;\\text{{W}}}}$$
 """
+
+        # Caso 3: Ley de Ohm con I y R conocidos (calcula V paso a paso)
+        if I is not None and I > 0 and len(vals_r) == 1 and (V is None or V == 0):
+            R_val = vals_r[0]
+            V_calc = I * R_val
+            P_calc = V_calc * I
+            return f"""
+### 🟢 [M2 — Electrodinámica] Ley de Ohm
+
+**Ley de Ohm:**
+$$V = I \\cdot R$$
+
+**Datos extraídos:**
+- Corriente ($I$): ${I:.4g}\\;\\text{{A}}$
+- Resistencia ($R$): ${R_val:.4g}\\;\\Omega$
+
+---
+
+#### 1) Cálculo del voltaje ($V$)
+**Fórmula:**
+$$V = I \\cdot R$$
+
+**Sustitución:**
+$$V = ({I:.4g}\\;\\text{{A}}) \\cdot ({R_val:.4g}\\;\\Omega)$$
+
+$$\\boxed{{V = {V_calc:.4f}\\;\\text{{V}}}}$$
+
+---
+
+#### 2) Potencia eléctrica disipada
+$$P = I^2 \\cdot R = ({I:.4g}\\;\\text{{A}})^2 \\cdot ({R_val:.4g}\\;\\Omega)$$
+$$\\boxed{{P = {P_calc:.4f}\\;\\text{{W}}}}$$
+"""
+
+        # Caso 4: Resistencias equivalentes (Serie o Paralelo)
         if vals_r:
             if es_par:
-                Req = 1.0 / sum(1.0 / r for r in vals_r if r > 0)
+                Req = 1.0 / sum(1.0 / r for r in vals_r if r > 0) if all(r > 0 for r in vals_r) else 0.0
                 modo, formula = "Paralelo", r"R_{eq} = \left(\sum \frac{1}{R_i}\right)^{-1}"
             else:
                 Req = sum(vals_r)
                 modo, formula = "Serie", r"R_{eq} = \sum R_i"
-            lista = ", ".join([f"{r}\\;\\Omega" for r in vals_r])
+            lista = ", ".join([f"{r:.4g}\\;\\Omega" for r in vals_r])
             extra = ""
-            if V > 0 and Req > 0:
+            if V is not None and V > 0 and Req > 0:
                 I_tot = V / Req
                 P_tot = V * I_tot
-                extra = (f"\n**Con $V = {V}\\;\\text{{V}}$:**\n"
-                         f"- $I = V/R_{{eq}} = {V}/{Req:.2f} = {I_tot:.4f}\\;\\text{{A}}$\n"
-                         f"- $P = V \\cdot I = {P_tot:.4f}\\;\\text{{W}}$")
+                extra = (f"\n\n---\n**Con fuente de $V = {V:.4g}\\;\\text{{V}}$:**\n"
+                         f"- Corriente total: $I = V/R_{{eq}} = {V:.4g}/{Req:.2f} = {I_tot:.4f}\\;\\text{{A}}$\n"
+                         f"- Potencia total disipada: $P = V \\cdot I = {P_tot:.4f}\\;\\text{{W}}$")
             return f"""
 ### 🟢 [M2 — Electrodinámica] Resistencias en {modo}
 **Fórmula:** ${formula}$
@@ -1287,146 +1687,232 @@ def _si_campo(valor, unidad):
     return valor, "T"
 
 
+def formato_valor_limpio(val: float, unidad: str = "") -> str:
+    """
+    Formatea un número de forma limpia:
+    - Decimal limpio para números en rangos comunes (0.0001 a 99999).
+    - Notación matemática LaTeX limpia (a \times 10^{b}) para magnitudes muy pequeñas o grandes.
+    """
+    if val is None:
+        return ""
+    if abs(val) < 1e-30:
+        return f"0\\;\\text{{{unidad}}}" if unidad else "0"
+
+    signo = "-" if val < 0 else ""
+    mag = abs(val)
+
+    if 0.0001 <= mag < 100000:
+        if abs(mag - round(mag, 2)) < 1e-5:
+            s = f"{signo}{mag:.2f}"
+            if s.endswith(".00"):
+                s = f"{signo}{int(round(mag))}"
+        elif abs(mag - round(mag, 4)) < 1e-5:
+            s = f"{signo}{mag:.4f}".rstrip('0').rstrip('.')
+        else:
+            s = f"{signo}{mag:.4g}"
+    else:
+        exp = int(math.floor(math.log10(mag)))
+        mant = mag / (10.0 ** exp)
+        if abs(mant - round(mant, 2)) < 1e-4:
+            s_mant = f"{mant:.2f}".rstrip('0').rstrip('.')
+        else:
+            s_mant = f"{mant:.3g}"
+        s = f"{signo}{s_mant} \\times 10^{{{exp}}}"
+
+    if unidad:
+        return f"{s}\\;\\text{{{unidad}}}"
+    return s
+
+
+def formato_fuerza_limpia(val: float) -> str:
+    """Formatea la fuerza en Newtons con decimal limpio (ej. 0.40 N) o notación clara."""
+    mag = abs(val)
+    if 0.001 <= mag < 1000:
+        if abs(mag - round(mag, 2)) < 1e-4:
+            return f"{val:.2f}"
+        return f"{val:.4f}".rstrip('0').rstrip('.')
+    return formato_valor_limpio(val)
+
+
 def resolver_fuerza_magnetica_conductor(texto: str):
     """
     M3 — Fuerza magnética sobre un conductor, alambre, espira o bobina.
-
-    Soporta coma decimal y conversión a SI:
-      - I: mA -> A
-      - L, d: mm -> m, cm -> m
-
-    Casos:
-      1) Con longitud L directa:  F = I * L * B * sin(theta)
-      2) Con diámetro d y N vueltas:
-           L_total = N * pi * d
-           F = I * L_total * B * sin(theta)
-
-    theta por defecto = 90° (perpendicular) -> sin(theta) = 1.
-    Retorna Markdown o None si el enunciado no corresponde a este caso.
+    Fórmula: F = B * I * L * sin(theta)
+    Para 0.5 m, 4 A, 0.2 T y 90° resulta exactamente 0.40 N.
     """
     t = texto.lower()
 
-    # No secuestrar otros temas de M3 ni de M1/M2.
-    if any(k in t for k in ["lorentz", "carga en campo", "partícula en campo",
-                            "particula en campo", "biot", "savart", "faraday",
-                            "lenz", "fem inducida", "variación de flujo",
-                            "variacion de flujo"]):
+    # Si se menciona explícitamente carga en movimiento o variación de flujo sin relación con conductor, omitir.
+    if any(k in t for k in ["carga en campo", "partícula en campo", "particula en campo"]):
+        return None
+    if any(k in t for k in ["faraday", "lenz", "fem inducida", "variación de flujo", "variacion de flujo"]):
         return None
 
     es_conductor = any(k in t for k in [
-        "alambre", "conductor", "espira", "bobina", "hilo", "cable",
-        "vuelta", "devanado", "solenoide",
+        "conductor", "alambre", "espira", "bobina", "hilo", "cable",
+        "vuelta", "devanado", "solenoide", "fuerza magnética sobre un conductor",
+        "fuerza sobre un conductor", "fuerza en un conductor"
     ])
+
+    # Si no tiene palabra clave de conductor, verificar si tiene datos de conductor: L (m/cm/mm) y I (A/mA)
     if not es_conductor:
-        return None
-
-    tiene_fuerza = any(k in t for k in ["fuerza", "f = ", "fz"])
-    tiene_datos = bool(re.search(r'\bb\s*[:=]', t) and re.search(r'\bi\s*[:=]', t))
-    if not (tiene_fuerza or tiene_datos):
-        return None
-
-    num = r'([0-9]+(?:[.,][0-9]+)?(?:e[+\-]?[0-9]+)?)'
-
-    patrones = {
-        "B": rf'\b(?:b|campo(?:\s+magn[ée]tico)?)\s*(?:de\s+)?[:=]?\s*{num}\s*(mt|militeslas?|t|tesla)?\b',
-        "I": rf'\b(?:i|corriente|intensidad)\b\s*(?:de\s+)?[:=]?\s*{num}\s*(ma|miliamperios?|a|amperios?)?\b',
-        "L": rf'\b(?:l|longitud|alambre|hilo|conductor)\b\s*(?:de\s+)?[:=]?\s*{num}\s*(mm|milimetros?|cm|centimetros?|m|metros?)?\b',
-        "d": rf'\b(?:d|di[áa]metro|diametro)\b\s*(?:de\s+)?[:=]?\s*{num}\s*(mm|milimetros?|cm|centimetros?|m|metros?)?\b',
-        "r": rf'\b(?:radio|r)\b\s*(?:de\s+)?[:=]?\s*{num}\s*(mm|milimetros?|cm|centimetros?|m|metros?)?\b',
-        "N": rf'\b(?:n|vueltas?|espiras?|n[úu]mero\s+de\s+vueltas)\b\s*(?:de\s+)?[:=]?\s*{num}\s*(?:vueltas?|espiras?)?\b',
-        "N2": rf'{num}\s*(?:vueltas|espiras)\b',
-        "theta": rf'\b(?:theta|θ|ángulo|angulo|ang)\b\s*(?:de\s+)?[:=]?\s*{num}\s*(?:°|grados?)?\b',
-    }
-
-    B_raw, B_uni = _extraer_medida(patrones["B"], t)
-    I_raw, I_uni = _extraer_medida(patrones["I"], t)
-    if B_raw is None or I_raw is None:
-        return None
-
-    B, B_uni_txt = _si_campo(B_raw, B_uni)
-    I, I_uni_txt = _si_corriente(I_raw, I_uni)
-
-    theta, _ = _extraer_medida(patrones["theta"], t, default=90.0)
-    sin_theta = math.sin(math.radians(theta))
-    angulo_txt = f"{_fmt_num(theta)}°"
-
-    L_raw, L_uni = _extraer_medida(patrones["L"], t)
-    d_raw, d_uni = _extraer_medida(patrones["d"], t)
-    r_raw, r_uni = _extraer_medida(patrones["r"], t)
-    N_raw, _ = _extraer_medida(patrones["N"], t)
-    if N_raw is None:
-        N_raw, _ = _extraer_medida(patrones["N2"], t)
-    N = N_raw if N_raw is not None else 1.0
-
-    datos = [
-        rf"$B = {_fmt_num(B_raw)}\,\text{{{B_uni_txt}}} = {_fmt_num(B)}\,\text{{T}}$",
-        rf"$I = {_fmt_num(I_raw)}\,\text{{{I_uni_txt}}} = {_fmt_num(I)}\,\text{{A}}$",
-        rf"$\theta = {angulo_txt} \;\Rightarrow\; \sin\theta = {_fmt_num(sin_theta)}$",
-    ]
-
-    if L_raw is not None:
-        # Caso 1: longitud directa (no se multiplica por N).
-        L, L_uni_txt = _si_longitud(L_raw, L_uni)
-        datos.insert(2, rf"$L = {_fmt_num(L_raw)}\,\text{{{L_uni_txt}}} = {_fmt_num(L)}\,\text{{m}}$")
-        formula = r"F = I\,L\,B\,\sin\theta"
-        sustitucion = (
-            rf"$$F = ({_fmt_num(I)})\cdot({_fmt_num(L)})\cdot({_fmt_num(B)})"
-            rf"\cdot({_fmt_num(sin_theta)}) = {_fmt_num(I * L * B * sin_theta)}\,\text{{N}}$$"
-        )
-        F = I * L * B * sin_theta
-        titulo = "Fuerza Magnética sobre Alambre Conductor"
-    else:
-        # Caso 2: espira/bobina con diámetro (o radio) y N vueltas.
-        es_radio = d_raw is None and r_raw is not None
-        diametro_raw = (r_raw * 2.0) if es_radio else d_raw
-        uni_usada = r_uni if es_radio else d_uni
-        if diametro_raw is None:
+        tiene_l = bool(re.search(r'\b\d+(?:[.,]\d+)?\s*(?:mm|mil[ií]metros?|cm|cent[ií]metros?|m|metros?)\b', t))
+        tiene_i = bool(re.search(r'\b\d+(?:[.,]\d+)?\s*(?:ma|miliamperios?|a|amperios?)\b', t))
+        tiene_b = bool(re.search(r'\b\d+(?:[.,]\d+)?\s*(?:mt|militeslas?|t|teslas?)\b', t))
+        if tiene_l and tiene_i and (tiene_b or "fuerza" in t):
+            es_conductor = True
+        else:
             return None
 
-        d, d_uni_txt = _si_longitud(diametro_raw, uni_usada)
-        L_total = N * math.pi * d
-        F = I * L_total * B * sin_theta
+    # 1. Campo magnético B
+    B_raw, B_uni = None, None
+    m_b = re.search(r'\b(?:b|campo(?:\s+magn[ée]tico)?)\b(?:\s+(?:de|del|con))*\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?(?:e[+\-]?[0-9]+)?)\s*(mt|militeslas?|t|teslas?)?\b', t)
+    if m_b and m_b.group(1):
+        B_raw = _parse_numero_decimal(m_b.group(1))
+        B_uni = m_b.group(2)
+    if B_raw is None:
+        m_b2 = re.search(r'\b([0-9]+(?:[.,][0-9]+)?(?:e[+\-]?[0-9]+)?)\s*(mt|militeslas?|t|teslas?)\b', t)
+        if m_b2:
+            B_raw = _parse_numero_decimal(m_b2.group(1))
+            B_uni = m_b2.group(2)
+    if B_raw is None:
+        B_raw, B_uni = 1.0, "T"
 
-        # Mostrar el dato tal como se dio y su conversión a SI (sin borrar θ).
-        if es_radio:
-            r_si, _ = _si_longitud(r_raw, r_uni)
-            dato_d = (
-                rf"$r = {_fmt_num(r_raw)}\,\text{{{d_uni_txt}}} = {_fmt_num(r_si)}\,\text{{m}}$"
-                rf"\;\Rightarrow\; d = 2r = {_fmt_num(d)}\,\text{{m}}$"
-            )
-        else:
-            dato_d = rf"$d = {_fmt_num(d_raw)}\,\text{{{d_uni_txt}}} = {_fmt_num(d)}\,\text{{m}}$"
+    B, B_uni_txt = _si_campo(B_raw, B_uni)
 
-        datos.insert(2, dato_d)
-        vuelta_txt = "vuelta" if N == 1 else "vueltas"
-        datos.append(
-            rf"$N = {_fmt_num(N)}\,\text{{{vuelta_txt}}}$"
-            + (r"\;(asumida = 1, espira única)" if N_raw is None else "")
-        )
-        formula = r"L_{\text{total}} = N\,\pi\,d \qquad;\qquad F = I\,L_{\text{total}}\,B\,\sin\theta"
-        sustitucion = (
-            rf"$$L_{{\text{{total}}}} = {_fmt_num(N)}\cdot\pi\cdot({_fmt_num(d)}) = {_fmt_num(L_total)}\,\text{{m}}$$"
-            "\n\n"
-            rf"$$F = ({_fmt_num(I)})\cdot({_fmt_num(L_total)})\cdot({_fmt_num(B)})"
-            rf"\cdot({_fmt_num(sin_theta)}) = {_fmt_num(F)}\,\text{{N}}$$"
-        )
-        titulo = "Fuerza Magnética sobre Bobina / Espira"
+    # 2. Corriente I
+    I_raw, I_uni = None, None
+    m_i = re.search(r'\b(?:i|corriente|intensidad)\b(?:\s+(?:de|del|con))*\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?(?:e[+\-]?[0-9]+)?)\s*(ma|miliamperios?|miliamper|a|amperios?|ampere|amps?)?\b', t)
+    if m_i and m_i.group(1):
+        I_raw = _parse_numero_decimal(m_i.group(1))
+        I_uni = m_i.group(2)
+    if I_raw is None:
+        m_i2 = re.search(r'\b([0-9]+(?:[.,][0-9]+)?(?:e[+\-]?[0-9]+)?)\s*(ma|miliamperios?|miliamper|a|amperios?|ampere|amps?)\b', t)
+        if m_i2:
+            I_raw = _parse_numero_decimal(m_i2.group(1))
+            I_uni = m_i2.group(2)
+    if I_raw is None:
+        I_raw, I_uni = 1.0, "A"
 
-    F_mN = F * 1e3
-    return f"""
+    I, I_uni_txt = _si_corriente(I_raw, I_uni)
+
+    # 3. Ángulo theta
+    m_th = re.search(r'\b(?:theta|θ|ángulo|angulo|ang)\b(?:\s+(?:de|con))*\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)\s*(?:°|grados?)?\b', t)
+    if not m_th:
+        m_th = re.search(r'\b([0-9]+(?:[.,][0-9]+)?)\s*(?:°|grados)\b', t)
+    if m_th:
+        theta = _parse_numero_decimal(m_th.group(1))
+    elif "perpendicular" in t or "perpendiculares" in t:
+        theta = 90.0
+    elif "paralelo" in t or "paralela" in t or "paralelos" in t:
+        theta = 0.0
+    else:
+        theta = 90.0
+
+    sin_theta = math.sin(math.radians(theta))
+    if abs(sin_theta - round(sin_theta)) < 1e-9:
+        sin_theta = float(round(sin_theta))
+
+    # 4. Longitud L o parámetros de espira/bobina
+    L_raw, L_uni = None, None
+    d_raw, d_uni = None, None
+    r_raw, r_uni = None, None
+    N_raw = None
+
+    # Caso espira/bobina (diámetro o radio)
+    m_d = re.search(r'\b(?:di[áa]metro|diametro)\b(?:\s+(?:de|del|con))*\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)\s*(mm|mil[ií]metros?|cm|cent[ií]metros?|m|metros?)?\b', t)
+    if m_d:
+        d_raw = _parse_numero_decimal(m_d.group(1))
+        d_uni = m_d.group(2)
+
+    m_r = re.search(r'\b(?:radio|r)\b(?:\s+(?:de|del|con))*\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)\s*(mm|mil[ií]metros?|cm|cent[ií]metros?|m|metros?)?\b', t)
+    if m_r:
+        r_raw = _parse_numero_decimal(m_r.group(1))
+        r_uni = m_r.group(2)
+
+    m_n = re.search(r'\b(?:n|vueltas?|espiras?|n[úu]mero\s+de\s+vueltas)\b(?:\s+(?:de|del|con))*\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)\b', t)
+    if m_n:
+        N_raw = _parse_numero_decimal(m_n.group(1))
+
+    # Longitud L de conductor
+    m_l = re.search(r'\b(?:longitud|l|conductor|alambre|hilo|cable)\b(?:\s+(?:de|del|con|longitud))*?\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?(?:e[+\-]?[0-9]+)?)\s*(mm|mil[ií]metros?|cm|cent[ií]metros?|m|metros?)?\b', t)
+    if m_l and m_l.group(1):
+        L_raw = _parse_numero_decimal(m_l.group(1))
+        L_uni = m_l.group(2)
+
+    if L_raw is None and d_raw is None and r_raw is None:
+        for m_len in re.finditer(r'\b([0-9]+(?:[.,][0-9]+)?)\s*(mm|mil[ií]metros?|cm|cent[ií]metros?|m|metros?)\b', t):
+            u_cand = m_len.group(2).lower()
+            if u_cand == "m" and re.search(rf'{m_len.group(1)}\s*mt\b', t):
+                continue
+            L_raw = _parse_numero_decimal(m_len.group(1))
+            L_uni = u_cand
+            break
+
+    if L_raw is None and d_raw is None and r_raw is None:
+        L_raw, L_uni = 1.0, "m"
+
+    # Resolución Caso 1: Longitud L directa
+    if L_raw is not None and (d_raw is None and r_raw is None):
+        L, L_uni_txt = _si_longitud(L_raw, L_uni)
+        F = B * I * L * sin_theta
+        F_txt = formato_fuerza_limpia(F)
+        titulo = "Fuerza Magnética sobre un Conductor"
+
+        return f"""
 ### 🔵 [M3 — Magnetismo] {titulo}
 
-**1) Datos convertidos a SI** *(se aceptaron comas decimales)*
-{chr(10).join('- ' + d for d in datos)}
+**Fórmula:**
+$$F = B \\cdot I \\cdot L \\cdot \\sin\\theta$$
 
-**2) Fórmula**
-$${formula}$$
+**Datos:**
+- Campo magnético ($B$): ${formato_valor_limpio(B, 'T')}$
+- Corriente ($I$): ${formato_valor_limpio(I, 'A')}$
+- Longitud del conductor ($L$): ${formato_valor_limpio(L, 'm')}$
+- Ángulo ($\theta$): ${theta:.4g}^\\circ \\implies \\sin({theta:.4g}^\\circ) = {sin_theta:.4g}$
 
-**3) Sustitución**
-{sustitucion}
+---
 
-**4) Resultado final**
-$$\\boxed{{F = {_fmt_num(F)}\\;\\text{{N}} = {_fmt_num(F_mN)}\\;\\text{{mN}}}}$$
+#### Sustitución y cálculo:
+$$F = ({formato_valor_limpio(B, 'T')}) \\cdot ({formato_valor_limpio(I, 'A')}) \\cdot ({formato_valor_limpio(L, 'm')}) \\cdot ({sin_theta:.4g})$$
+
+$$\\boxed{{F = {F_txt}\\;\\text{{N}}}}$$
+"""
+
+    # Resolución Caso 2: Espira / Bobina con diámetro/radio y vueltas
+    es_radio = d_raw is None and r_raw is not None
+    diametro_raw = (r_raw * 2.0) if es_radio else d_raw
+    uni_usada = r_uni if es_radio else d_uni
+    if diametro_raw is None:
+        return None
+
+    d, d_uni_txt = _si_longitud(diametro_raw, uni_usada)
+    N = N_raw if N_raw is not None else 1.0
+    L_total = N * math.pi * d
+    F = B * I * L_total * sin_theta
+    F_txt = formato_fuerza_limpia(F)
+
+    return f"""
+### 🔵 [M3 — Magnetismo] Fuerza Magnética sobre Bobina / Espira
+
+**Fórmulas:**
+$$L_{{\\text{{total}}}} = N \\cdot \\pi \\cdot d \\qquad;\\qquad F = B \\cdot I \\cdot L_{{\\text{{total}}}} \\cdot \\sin\\theta$$
+
+**Datos:**
+- Campo magnético ($B$): ${formato_valor_limpio(B, 'T')}$
+- Corriente ($I$): ${formato_valor_limpio(I, 'A')}$
+- Diámetro ($d$): ${formato_valor_limpio(d, 'm')}$
+- Número de vueltas ($N$): ${int(N) if N == int(N) else N}$
+- Ángulo ($\theta$): ${theta:.4g}^\\circ \\implies \\sin({theta:.4g}^\\circ) = {sin_theta:.4g}$
+
+---
+
+#### Sustitución y cálculo:
+$$L_{{\\text{{total}}}} = {N} \\cdot \\pi \\cdot ({formato_valor_limpio(d, 'm')}) = {formato_valor_limpio(L_total, 'm')}$$
+
+$$F = ({formato_valor_limpio(B, 'T')}) \\cdot ({formato_valor_limpio(I, 'A')}) \\cdot ({formato_valor_limpio(L_total, 'm')}) \\cdot ({sin_theta:.4g})$$
+
+$$\\boxed{{F = {F_txt}\\;\\text{{N}}}}$$
 """
 
 
@@ -1435,27 +1921,157 @@ def resolver_modulo3_extra(texto: str):
     t = texto.lower()
     mu0 = 4 * math.pi * 1e-7
 
-    # Prioridad: fuerza magnética sobre alambre/espira/bobina.
+    # Prioridad 1: fuerza magnética sobre conductor/alambre/espira/bobina.
     resp_fuerza = resolver_fuerza_magnetica_conductor(texto)
     if resp_fuerza:
         return resp_fuerza
 
-    if any(k in t for k in ["lorentz", "fuerza magnética", "fuerza magnetica",
-                              "qvb", "carga en campo", "partícula en campo"]):
-        q = _num(r'(?:q|carga)\s*[=:]\s*([\d.eE+\-]+)', t, 1.6e-19)
-        v = _num(r'(?:v|velocidad)\s*[=:]\s*([\d.eE+\-]+)', t, 1e6)
-        B = _num(r'(?:b|campo)\s*[=:]\s*([\d.eE+\-]+)', t, 1.0)
-        fac = 1e-6 if ("µc" in t or "uc" in t) else (1e-9 if "nc" in t else 1.0)
-        q *= fac
-        F = abs(q) * v * B
+    # Si el enunciado menciona conductor, alambre o bobina, NUNCA debe entrar a Lorentz sobre carga puntual
+    es_conductor = any(k in t for k in ["conductor", "alambre", "hilo", "cable", "espira", "bobina"])
+    if es_conductor:
+        return """
+### 🔵 [M3 — Magnetismo] Fuerza Magnética sobre un Conductor
+**Fórmula:**
+$$F = B \\cdot I \\cdot L \\cdot \\sin\\theta$$
+
+Para resolver este ejercicio se requiere la longitud $L$ del conductor (en m/cm), la corriente $I$ (en A/mA) y el campo magnético $B$ (en T).
+*Ejemplo:* `conductor de 0.5 m, 4 A, 0.2 T y 90°` $\\rightarrow F = 0.40\\;\\text{N}$
+"""
+
+    # Prioridad 2: Fuerza de Lorentz sobre Carga en Movimiento
+    if any(k in t for k in ["lorentz", "qvb", "carga en campo", "partícula en campo", "particula en campo"]) or \
+       (any(k in t for k in ["fuerza magnética", "fuerza magnetica"]) and any(k in t for k in ["carga", "electr", "prot", "partícula", "particula", "velocidad", "v="])):
+        
+        # 1. Carga q
+        cargas = extraer_cargas_texto(texto)
+        if cargas:
+            q = cargas[0]["val"]
+            q_str = formato_valor_limpio(q, "C")
+        else:
+            m_q = re.search(r'\b(?:q|carga)\s*[=:]\s*([+\-]?\d+(?:[.,]\d+)?(?:e[+\-]?\d+)?)\s*([µμu]c|nc|mc|pc|c)?\b', t)
+            if m_q:
+                val = _parse_numero_decimal(m_q.group(1))
+                u = (m_q.group(2) or "").lower()
+                if any(x in u for x in ["µc", "μc", "uc"]):
+                    val *= 1e-6
+                elif "nc" in u:
+                    val *= 1e-9
+                elif "mc" in u:
+                    val *= 1e-3
+                elif "pc" in u:
+                    val *= 1e-12
+                q = val
+                q_str = formato_valor_limpio(q, "C")
+            elif any(p in t for p in ["electrón", "electron"]):
+                q = -1.602e-19
+                q_str = r"-1.602 \times 10^{-19}\;\text{C}\;(\text{electr\'on})"
+            elif any(p in t for p in ["protón", "proton"]):
+                q = 1.602e-19
+                q_str = r"1.602 \times 10^{-19}\;\text{C}\;(\text{prot\'on})"
+            else:
+                q = 1.602e-19
+                q_str = r"1.602 \times 10^{-19}\;\text{C}\;(\text{carga elemental } e)"
+
+        # 2. Velocidad v
+        m_v = re.search(r'\b(?:v|velocidad|rapidez)\s*(?:de|[=:])?\s*([+\-]?\d+(?:[.,]\d+)?(?:e[+\-]?\d+)?)\s*(km/s|m/s)?\b', t)
+        if m_v and m_v.group(1):
+            v = _parse_numero_decimal(m_v.group(1))
+            if (m_v.group(2) or "").lower() == "km/s":
+                v *= 1e3
+        else:
+            m_v2 = re.search(r'\b([0-9]+(?:[.,][0-9]+)?(?:e[+\-]?[0-9]+)?)\s*(km/s|m/s)\b', t)
+            if m_v2:
+                v = _parse_numero_decimal(m_v2.group(1))
+                if (m_v2.group(2) or "").lower() == "km/s":
+                    v *= 1e3
+            else:
+                v = 1e6
+
+        # 3. Campo magnético B
+        m_b = re.search(r'\b(?:b|campo(?:\s+magn[ée]tico)?)\s*(?:de|[=:])?\s*([+\-]?\d+(?:[.,]\d+)?(?:e[+\-]?\d+)?)\s*(mt|t|teslas?)?\b', t)
+        if m_b and m_b.group(1):
+            B = _parse_numero_decimal(m_b.group(1))
+            if (m_b.group(2) or "").lower() in ("mt", "militesla", "militeslas"):
+                B *= 1e-3
+        else:
+            m_b2 = re.search(r'\b([0-9]+(?:[.,][0-9]+)?(?:e[+\-]?[0-9]+)?)\s*(mt|t|teslas?)\b', t)
+            if m_b2:
+                B = _parse_numero_decimal(m_b2.group(1))
+                if (m_b2.group(2) or "").lower() in ("mt", "militesla", "militeslas"):
+                    B *= 1e-3
+            else:
+                B = 1.0
+
+        # 4. Ángulo theta
+        m_th = re.search(r'\b(?:theta|θ|ángulo|angulo|ang)\b(?:\s+(?:de|con))*\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)\s*(?:°|grados?)?\b', t)
+        if not m_th:
+            m_th = re.search(r'\b([0-9]+(?:[.,][0-9]+)?)\s*(?:°|grados)\b', t)
+        if m_th:
+            theta = _parse_numero_decimal(m_th.group(1))
+        elif "perpendicular" in t or "perpendiculares" in t:
+            theta = 90.0
+        elif "paralelo" in t or "paralela" in t or "paralelos" in t:
+            theta = 0.0
+        else:
+            theta = 90.0
+
+        sin_theta = math.sin(math.radians(theta))
+        if abs(sin_theta - round(sin_theta)) < 1e-9:
+            sin_theta = float(round(sin_theta))
+
+        F = abs(q) * v * B * sin_theta
+        F_txt = formato_fuerza_limpia(F) if 0.001 <= abs(F) < 1000 else formato_valor_limpio(F, "N")
+
         return f"""
 ### 🔵 [M3 — Magnetismo] Fuerza de Lorentz sobre Carga en Movimiento
-**Fórmula:** $\\vec{{F}} = q\\,\\vec{{v}} \\times \\vec{{B}}$ → $F = |q|\\,v\\,B\\,\\sin\\theta$
-*(asumiendo $\\theta = 90°$, movimiento perpendicular al campo)*
 
-**Datos:** $q = {q:.3e}\\;\\text{{C}}$, $v = {v:.3e}\\;\\text{{m/s}}$, $B = {B}\\;\\text{{T}}$
+**Fórmula:**
+$$\\vec{{F}} = q\\,(\\vec{{v}} \\times \\vec{{B}}) \\implies F = |q| \\cdot v \\cdot B \\cdot \\sin\\theta$$
 
-$$\\boxed{{F = {F:.4e}\\;\\text{{N}}}}$$
+**Datos:**
+- Carga ($q$): ${q_str}$
+- Velocidad ($v$): ${formato_valor_limpio(v, 'm/s')}$
+- Campo magnético ($B$): ${formato_valor_limpio(B, 'T')}$
+- Ángulo ($\theta$): ${theta:.4g}^\\circ \\implies \\sin({theta:.4g}^\\circ) = {sin_theta:.4g}$
+
+---
+
+#### Sustitución y cálculo:
+$$F = |{formato_valor_limpio(q)}| \\cdot ({formato_valor_limpio(v, 'm/s')}) \\cdot ({formato_valor_limpio(B, 'T')}) \\cdot ({sin_theta:.4g})$$
+
+$$\\boxed{{F = {F_txt}\\;\\text{{N}}}}$$
+"""
+
+    if any(k in t for k in ["biot", "savart", "hilo largo", "conductor largo",
+                              "campo de un hilo"]):
+        I = _num(r'(?:i|corriente)\s*[=:]\s*([\d.]+)', t, 1.0)
+        r = _num(r'(?:r|distancia|d)\s*[=:]\s*([\d.]+)', t, 0.1)
+        B = mu0 * I / (2 * math.pi * r)
+        return f"""
+### 🔵 [M3 — Magnetismo] Campo Magnético — Hilo Largo (Biot-Savart)
+**Fórmula:**
+$$B = \\frac{{\\mu_0\\,I}}{{2\\pi\\,r}}$$
+
+**Datos:** $I = {I}\\;\\text{{A}}$, $r = {r}\\;\\text{{m}}$, $\\mu_0 = 4\\pi\\times10^{{-7}}\\;\\text{{T·m/A}}$
+
+$$\\boxed{{B = {formato_valor_limpio(B, 'T')}}}$$
+"""
+
+    if any(k in t for k in ["faraday", "lenz", "fem inducida", "variación de flujo",
+                              "variacion de flujo", "delta phi", "dphi"]):
+        dphi = _num(r'(?:dphi|delta.*phi|delta.*flujo|d.*flujo)\s*[=:]\s*([\d.eE+\-]+)', t, 1e-3)
+        dt = _num(r'(?:dt|delta.*t|tiempo)\s*[=:]\s*([\d.]+)', t, 0.01)
+        N = _num(r'(?:n|espiras|vueltas|bobina)\s*[=:]\s*([\d.]+)', t, 1.0)
+        fem = abs(N * dphi / dt)
+        return f"""
+### 🔵 [M3 — Magnetismo] Ley de Faraday-Lenz
+**Fórmula:**
+$$|\\mathcal{{E}}| = N\\,\\left|\\frac{{\\Delta\\Phi_B}}{{\\Delta t}}\\right|$$
+*(El signo negativo indica que la FEM se opone al cambio — Ley de Lenz)*
+
+**Datos:** $N = {N}$, $\\Delta\\Phi_B = {formato_valor_limpio(dphi, 'Wb')}$, $\\Delta t = {dt}\\;\\text{{s}}$
+
+$$\\boxed{{\\mathcal{{E}} = {formato_valor_limpio(fem, 'V')}}}$$
 """
 
     if any(k in t for k in ["biot", "savart", "hilo largo", "conductor largo",
